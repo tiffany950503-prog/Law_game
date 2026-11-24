@@ -1,5 +1,5 @@
 /* ================= case picker & title ================= */
-const CASE_ORDER=['murder','affair','land','kidnap','bribe'];
+const CASE_ORDER=['murder','dui','affair','land','kidnap','bribe'];
 async function pickCase(){
   reset();hideDialog();hideToast();scene('court');setDay('選擇案件');stage('國民法官：庭審日誌',0);$('#issue').classList.remove('on');tally();bgm('calm');
   const rec=P?(ARCH[P.top]||ARCH.calm)[2]:null;
@@ -13,7 +13,7 @@ async function pickCase(){
 async function start(){
   reset();hideDialog();scene('court');setDay('國民法官');stage('庭審日誌',0);
   actions(`<div class="title"><p class="label">國民法官模擬遊戲</p><h1>你被抽中了。<br>這次，要開好幾天庭。</h1>
-    <p>五個案件：殺人、外遇疑雲、財團與土地、擄人勒贖、收賄。每個案子都有開審陳述、交互詰問、鑑定人、新證人，最後進評議室投票。</p>
+    <p>六個案件：殺人、酒駕致死、外遇疑雲、財團與土地、擄人勒贖、收賄。每個案子都有開審陳述、交互詰問、鑑定人、新證人，最後進評議室投票。</p>
     <p>開庭前，先玩 9 個改編自<b>法律心理學研究</b>的小關卡，看看你的判斷習慣可能怎麼影響審判。</p>
     <button class="btn amber" id="go">${P?'重新做心理側寫':'開始心理側寫（約 6 分鐘）'}</button>
     <button class="btn ghost" id="skip">${P?'用上次的側寫，直接選案':'跳過，直接選案'}</button>

@@ -5,7 +5,7 @@ R = pathlib.Path(__file__).parent / 'src'
 css = (R / 'base.css').read_text() + '\n' + (R / 'extra.css').read_text()
 scenes = json.dumps(json.loads((R / 'scenes.json').read_text()), ensure_ascii=False)
 order = ['util.js', 'audio.js', 'engine.js', 'profile.js',
-         'cases/murder.js', 'cases/affair.js', 'cases/land.js', 'cases/kidnap.js', 'cases/bribe.js',
+         'cases/murder.js', 'cases/dui.js', 'cases/affair.js', 'cases/land.js', 'cases/kidnap.js', 'cases/bribe.js',
          'main.js']
 js = '\n'.join((R / f).read_text() for f in order)
 html = (R / 'template.html').read_text()

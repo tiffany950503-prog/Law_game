@@ -1,7 +1,7 @@
 /* ================= state ================= */
 let S=null,P=store('cj2-profile'),DONE=store('cj2-done')||{};
 function reset(){
-  S={case:null,C:null,log:[],mark:0,evMark:0,unlocked:[],notes:[],people:[],lean:[],sched:[],dayIx:-1,asked:0,improper:0,
+  S={case:null,C:null,c57:{},log:[],mark:0,evMark:0,unlocked:[],notes:[],people:[],lean:[],sched:[],dayIx:-1,asked:0,improper:0,
      sc:{obj:[0,0],note:[0,0],read:[0,0],duty:[0,0]},res:{},myVote:{},firstVote:{},changed:[],
      out:null,sentence:null,my0:null,my1:null,anchor:null,jAvg:null,dutySeen:[]};
 }
@@ -145,7 +145,7 @@ const STEP={
     const d=(P&&P.gentle&&st.gd)||st.d;
     if(st.kind==='test'){unlock(id,st.t,d,'test');toast(`證詞已放入證據櫃：${esc(st.t)}`,2400);return;}
     const by=S.C.cast[st.by||'P'];
-    scene('evidence',`${esc(st.t)}<small>證據 ${id}</small>`);
+    if(st.sc)scene(st.sc);else scene('evidence',`${esc(st.t)}<small>證據 ${id}</small>`);
     await show(by.n,`請看證據 ${id}：${st.t}。`);
     actions(`<div class="card"><h4>證據 ${id}｜${esc(st.t)}</h4>${esc(d)}</div><button class="btn" data-v="1">看清楚了</button>`);
     await waitClick('#actions .btn');actions('');unlock(id,`${id}｜${st.t}`,d);
@@ -205,6 +205,16 @@ const STEP={
     const next=S.sched[Math.min(S.sched.length-1,S.dayIx+1)];
     m.add.forEach(t=>next.items.push({t,n:true}));
     actions(`<div class="card warm"><h4>庭期表更新</h4>${m.add.map(t=>'＋ '+esc(t)).join('<br>')}<div class="small">排在 ${esc(next.date)}。隨著雙方蒐集的證據越來越多，會傳喚更多人。</div></div>`);await cont();
+  },
+  async tree(nodes,st){
+    hideDialog();scene('open');
+    await show('審判長',st.intro||'用決策樹確認罪名。點一下每個條件，看看有沒有已調查的證據支持。');
+    const done=new Set();
+    const render=()=>actions(ctxHtml({allEv:true,filter:()=>false,closed:true,title:'回顧：證據櫃'})+`<div class="tree">${nodes.map((n,i)=>`<button class="node ${done.has(i)?'ok':''}" data-v="${i}">${done.has(i)?'✓':(i+1)+'.'} ${n[0]}${done.has(i)?`<small>依據：${n[1]}</small>`:''}</button>`).join('')}</div>`);
+    render();
+    while(done.size<nodes.length){const v=+(await waitClick('.node:not(.ok)'));done.add(v);render();}
+    await sleep(400);actions('');
+    if(st.after)await say('審判長',st.after);
   },
   async tip(trait,st){
     if(!P||!P.flags||!P.flags.includes(trait))return;
@@ -271,6 +281,21 @@ const NOTE={
   },
 };
 NOTE.contra=NOTE.pick;
+const K57={'一':'犯罪之動機、目的','二':'犯罪時所受之刺激','三':'犯罪之手段','四':'生活狀況','五':'品行','六':'智識程度','七':'與被害人之關係','八':'違反義務之程度','九':'犯罪所生之危險或損害','十':'犯罪後之態度'};
+NOTE.k57=async function(n){
+  actions(ctxHtml({text:n.label,ref:n.ref})+`<div class="lesson"><p class="label">量刑標記｜刑法第 57 條</p><h4>這項資料對刑度的影響？</h4><b>第 ${n.k} 款</b>｜${K57[n.k]}<br><span class="small">${esc(n.label)}</span></div>
+   <div class="chips"><button class="chip k" data-v="up">加重</button><button class="chip h" data-v="down">減輕</button><button class="chip u" data-v="none">無關／抵銷</button></div>`);
+  const v=await waitClick('#actions .chip');(S.c57[n.k]=S.c57[n.k]||[]).push({label:n.label,lean:v});
+  const ok=n.ans.includes(v);S.sc.note[1]++;if(ok)S.sc.note[0]++;
+  $$('#actions .chip').forEach(b=>{b.disabled=true;if(b.dataset.v===v)b.classList.add('sel');});
+  $('#actions').insertAdjacentHTML('beforeend',`<div class="fb ${ok?'ok':'mid'}">${ok?'':'<b>可以再想想。</b>'}${n.fb}</div>`);
+  await cont();
+};
+function sum57(){
+  return `<table class="t57">${Object.keys(K57).map(k=>{const a=S.c57[k]||[];const up=a.filter(x=>x.lean==='up').length,dn=a.filter(x=>x.lean==='down').length;
+    const r=!a.length?['none','未標記']:up>dn?['up','加重']:dn>up?['down','減輕']:['none','無關／抵銷'];
+    return `<tr><td>第${k}款 ${K57[k]}</td><td class="${r[0]}">${r[1]}</td></tr>`;}).join('')}</table>`;
+}
 
 /* ================= waiting between court days: juror duties ================= */
 const DUTY=[
@@ -380,7 +405,7 @@ async function sentencing(C){
   await show('審判長',`最後一個議題：${out.label}，刑度多重？請先寫下並鎖定你的刑度，再聽其他人。法官會最後發言。`);
   if(P&&P.flags&&P.flags.includes('anchor')){actions(`<div class="warnbox"><b>你的側寫提醒</b>｜前測的骰子遊戲顯示你可能受隨機數字影響。檢察官的求刑也是一個「錨」。先回到筆記裡的量刑事由，再決定數字。</div>`);await cont('收到');}
   const def=Math.round((sn.min+sn.max)/2/6)*6;
-  actions(ctxHtml({filter:l=>/求處|從輕|量刑|賠償|前案|悔|對不起|復健|提心吊膽|真相|回不來/.test(l.text),title:'回顧：科刑辯論與被害人陳述'})+`<div class="card"><h4>參考</h4>${sn.ref}<div class="small">刑度範圍為遊戲簡化設定，未列出無期徒刑、死刑與罰金等選項。</div></div>
+  actions(ctxHtml({filter:l=>/求處|從輕|量刑|賠償|前案|悔|對不起|復健|提心吊膽|真相|回不來/.test(l.text),title:'回顧：科刑辯論與被害人陳述'})+(C.sentExtra?C.sentExtra(S):'')+`<div class="card"><h4>參考</h4>${sn.ref}<div class="small">刑度範圍為遊戲簡化設定，未列出無期徒刑、死刑與罰金等選項。</div></div>
     <div class="big" id="sv"></div><input type="range" id="sl" min="${sn.min}" max="${sn.max}" step="1" value="${def}">
     <div class="row"><span>${fmt(sn.min)}</span><span>${fmt(sn.max)}</span></div><button class="btn amber" data-v="1">鎖定我的刑度</button>`);
   let sl=$('#sl'),sv=$('#sv');let up=()=>sv.textContent='有期徒刑 '+fmt(+sl.value);sl.oninput=up;up();
@@ -458,6 +483,7 @@ function review(C){
    <p class="small">信念會隨證據順序起伏，最後出現的證據常影響特別大（Hogarth & Einhorn, 1992）。看看你的線，是在哪一天轉彎的？</p>
    <div class="score"><div><b>${r(S.sc.obj)}</b>異議裁定預測</div><div><b>${r(S.sc.note)}</b>筆記練習</div><div><b>${r(S.sc.read)}</b>人性與利益觀察</div><div><b>${r(S.sc.duty)}</b>國民法官義務</div><div><b>${S.notes.length}</b>筆記則數</div><div><b>${S.asked}</b>補充詢問（不當 ${S.improper}）</div></div>
    ${S.anchor!=null?`<div class="card warm"><h4>被帶走指數（錨定）</h4><div class="anchor">${S.anchor}%</div><p>你的刑度從 ${fmt(S.my0)} 改成 ${fmt(S.my1)}，往法官平均（${fmt(S.jAvg)}）移動了 ${S.anchor}%。</p></div>`:''}
+   ${C.reviewExtra?C.reviewExtra(S):''}
    <div class="card"><h4>側寫 vs. 你在評議室的表現</h4>${selfCheck()}</div>
    <div class="card"><h4>這個案子用到的心理學</h4>${C.psych.map(p=>`<p class="ref">・${p}</p>`).join('')}</div>
    <button class="btn amber" id="nextc">選下一個案件</button>
