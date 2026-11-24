@@ -33,7 +33,7 @@ function roleClass(who){
   const c=castOf(who);if(c)return ROLECLS[c.r]||'';
   return who.includes('號')?'npc':'';
 }
-function scene(k,screen){const s=$('#scene');s.innerHTML=(SC[k]||SC.court)+(screen?`<div class="screen">${screen}</div>`:'');const f=s.firstChild;f&&f.classList&&f.classList.add('fade');}
+function scene(k,screen,cls){const s=$('#scene');s.innerHTML=(SC[k]||SC.court)+(screen?`<div class="screen ${cls||''}">${screen}</div>`:'');const f=s.firstChild;f&&f.classList&&f.classList.add('fade');}
 function stage(t,p){$('#stage').textContent=t;if(p!=null)$('#progress div').style.width=p+'%';}
 function setDay(t){$('#day').textContent=t;}
 function actions(h){$('#actions').innerHTML=h||'';$('#actions').scrollTop=0;ctxScroll();}
@@ -78,7 +78,7 @@ function ctxHtml(o={}){
   if(o.allEv)evs=S.unlocked.slice();
   if(!lines.length&&!evs.length)return '';
   const cnt=[lines.length?lines.length+' 句發言':'',evs.length?evs.length+' 項證據':''].filter(Boolean).join('、');
-  return `<details class="ctx" ${o.closed?'':'open'}><summary>${o.title||'回顧：這題相關的法庭內容'}<span>${cnt}</span></summary><div class="ctxb">${evs.map(e=>`<div class="ce"><b>${esc(e.title)}</b>｜${esc(e.desc)}</div>`).join('')}${lines.map(l=>`<p class="${l.who==='你（6 號）'?'me':''}"><b>${esc(l.who)}</b>：${esc(l.text)}</p>`).join('')}</div></details>`;
+  return `<details class="ctx" ${o.closed?'':'open'}><summary>${o.title||'回顧：這題相關的法庭內容'}<span>${cnt}</span></summary><div class="ctxb">${evs.map(e=>`<div class="ce">${e.kind!=='test'&&EVIMG[e.id]&&!(P&&P.gentle&&EV_SENSITIVE.includes(e.id))?evImg(e.id,true):''}<b>${esc(e.title)}</b>｜${esc(e.desc)}</div>`).join('')}${lines.map(l=>`<p class="${l.who==='你（6 號）'?'me':''}"><b>${esc(l.who)}</b>：${esc(l.text)}</p>`).join('')}</div></details>`;
 }
 function ctxScroll(){$$('.ctxb').forEach(e=>e.scrollTop=e.scrollHeight);}
 function transcriptHtml(){
@@ -103,7 +103,7 @@ function openBook(tab){
   const T=[['notes','筆記'],['ev','證據櫃'],['log','庭審紀錄'],['ppl','人物'],['cal','庭期']];
   let body='';
   if(tab==='notes')body=`<p class="small">好筆記＝誰說的｜說了什麼｜限制或疑點。只寫法庭上出現的內容，感想另外標。</p>`+(S.notes.length?S.notes.map((n,i)=>noteHtml(n,i)).join(''):'<div class="lockedmsg">還沒有筆記。開庭後會一邊審理一邊教你記。</div>');
-  if(tab==='ev')body=`<p class="small">卷證不併送：開庭前法官和國民法官都沒看過卷宗，只能用法庭上調查過的證據判斷。</p>`+(S.unlocked.length?S.unlocked.map(e=>`<div class="card ${e.kind==='test'?'warm':''}"><h4>${esc(e.title)}</h4>${esc(e.desc)}<div class="small">第 ${e.day} 庭・${e.kind==='test'?'證詞':'書證／物證'}</div></div>`).join(''):'<div class="lockedmsg">目前還是空的。</div>');
+  if(tab==='ev')body=`<p class="small">卷證不併送：開庭前法官和國民法官都沒看過卷宗，只能用法庭上調查過的證據判斷。</p>`+(S.unlocked.length?S.unlocked.map(e=>`<div class="card ${e.kind==='test'?'warm':''}"><h4>${esc(e.title)}</h4>${e.kind!=='test'&&EVIMG[e.id]?(P&&P.gentle&&EV_SENSITIVE.includes(e.id)?'<div class="small">（照片已依溫和模式隱藏）</div>':evImg(e.id,true)):''}${esc(e.desc)}<div class="small">第 ${e.day} 庭・${e.kind==='test'?'證詞':'書證／物證'}</div></div>`).join(''):'<div class="lockedmsg">目前還是空的。</div>');
   if(tab==='ppl')body=`<p class="small">每個人都有自己的立場與利益。有利益不等於說謊，但他的話需要其他證據互相印證。</p>`+(S.people.length?S.people.map(p=>`<div class="card"><h4>${esc(p.who)}</h4><b>利益：</b>${esc(p.ans)}<br><b>可能強調：</b>${esc(p.push)}<br><b>可能淡化：</b>${esc(p.hide)}</div>`).join(''):'<div class="lockedmsg">休庭時做的人物利益分析會放在這裡。</div>');
   if(tab==='cal')body=calHtml();
   if(tab==='log')body=`<p class="small">法庭上每一句發言的完整紀錄，可以隨時回來查。</p>`+transcriptHtml();
@@ -146,10 +146,12 @@ const STEP={
     const d=(P&&P.gentle&&st.gd)||st.d;
     if(st.kind==='test'){unlock(id,st.t,d,'test');toast(`證詞已放入證據櫃：${esc(st.t)}`,2400);return;}
     const by=S.C.cast[st.by||'P'];
-    if(st.sc)scene(st.sc);else scene('evidence',`${esc(st.t)}<small>證據 ${id}</small>`);
+    const hide=P&&P.gentle&&EV_SENSITIVE.includes(id),img=EVIMG[id]?EVIMG[id]():'';
+    if(st.sc)scene(st.sc);else if(img&&!hide)scene('evidence',img,'img');else scene('evidence',`${esc(st.t)}<small>證據 ${id}${hide?'・照片已依溫和模式隱藏':''}</small>`);
     await show(by.n,`請看證據 ${id}：${st.t}。`);
-    actions(`<div class="card"><h4>證據 ${id}｜${esc(st.t)}</h4>${esc(d)}</div><button class="btn" data-v="1">看清楚了</button>`);
-    await waitClick('#actions .btn');actions('');unlock(id,`${id}｜${st.t}`,d);
+    actions(`<div class="card"><h4>證據 ${id}｜${esc(st.t)}</h4>${img?(hide?'<button class="btn ghost" id="showimg" style="font-size:14px;padding:9px">照片可能讓人不適，點此查看</button><div id="imgbox"></div>':evImg(id)):''}${esc(d)}</div><button class="btn" data-v="1">看清楚了</button>`);
+    if(hide)$('#showimg').onclick=()=>{$('#imgbox').innerHTML=evImg(id);$('#showimg').remove();};
+    await waitClick('#actions .btn[data-v]');actions('');unlock(id,`${id}｜${st.t}`,d);
     if(st.hint)await say('審判長',st.hint);
   },
   async obj(o){
