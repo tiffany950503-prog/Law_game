@@ -18,10 +18,13 @@
 - **評議**：先寫再聽、2/3 有罪門檻、量刑錨定指數、心證軌跡圖。
 
 ## 建置
-原始碼在 `src/`，執行下列指令產生 `index.html`：
+原始碼在 `src/`，執行下列指令產生 `index.html`（claude.ai Artifact 用）與 `docs/index.html`（GitHub Pages 用的完整網頁）：
 
 ```
 python3 build.py
 ```
 
 `src/scenes.json` 是原 Demo 的插圖，`src/audio.js` 是原 Demo 的音樂、音效與語音模組。
+
+## 用 GitHub Pages 開啟
+到 repo 的 **Settings → Pages**，Source 選 **Deploy from a branch**，Branch 選放這份程式碼的分支、資料夾選 **/docs**，按 Save。一兩分鐘後即可在 `https://<帳號>.github.io/Law_game/` 遊玩。

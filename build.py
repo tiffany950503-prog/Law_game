@@ -13,3 +13,15 @@ html = html.replace('/*{{CSS}}*/', css).replace('/*{{SCENES}}*/', scenes).replac
 out = pathlib.Path(__file__).parent / 'index.html'
 out.write_text(html)
 print(out, len(html.encode()), 'bytes')
+
+# Full standalone document for GitHub Pages (served from /docs)
+page = ('<!doctype html>\n<html lang="zh-Hant">\n<head>\n<meta charset="utf-8">\n'
+        '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">\n'
+        + html.replace('<style>', '<style>\n[hidden]{display:none!important}', 1)
+              .replace('<div id="phone">', '</head>\n<body>\n<div id="phone">', 1)
+        + '</body>\n</html>\n')
+docs = pathlib.Path(__file__).parent / 'docs'
+docs.mkdir(exist_ok=True)
+(docs / 'index.html').write_text(page)
+(docs / '.nojekyll').write_text('')
+print(docs / 'index.html', len(page.encode()), 'bytes')
