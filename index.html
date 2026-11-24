@@ -199,6 +199,15 @@ textarea#nt{width:100%;min-height:76px;font:inherit;font-size:15.5px;border:2px 
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px solid var(--amber);outline-offset:2px}
 
+.ctx{background:#fff;border:1.5px solid var(--line);border-radius:10px;font-size:14px;flex-shrink:0}
+.ctx summary{cursor:pointer;padding:8px 12px;font-weight:700;color:var(--navy);font-size:13.5px;display:flex;justify-content:space-between;gap:8px}
+.ctx summary span{font-weight:500;color:var(--mute);font-size:12.5px;white-space:nowrap}
+.ctxb{max-height:200px;overflow-y:auto;padding:8px 12px 10px;display:flex;flex-direction:column;gap:6px;line-height:1.55;border-top:1px solid var(--alt)}
+.ctxb p{margin:0}.ctxb p b{color:#2F5D8F}.ctxb p.me b{color:var(--teal)}
+.ctxb .ce{background:#F4F6F5;border-left:4px solid var(--teal);padding:6px 8px;border-radius:4px;font-size:13.5px}
+.ctxb .note{font-size:13.5px}
+.tline{font-size:14px;line-height:1.6;margin:2px 0}.tline b{color:#2F5D8F}
+
 </style>
 <div id="phone">
   <div id="top"><span id="day">國民法官</span><span id="stage">庭審日誌</span><button id="snd" aria-label="聲音設定">♪</button><button id="locker" aria-label="筆記本與證據櫃">筆</button><button id="help" aria-label="法律小幫手">？</button></div>
@@ -379,7 +388,7 @@ $('#snd').addEventListener('click',()=>{auInit();audioSheet();});
 /* ================= state ================= */
 let S=null,P=store('cj2-profile'),DONE=store('cj2-done')||{};
 function reset(){
-  S={case:null,C:null,unlocked:[],notes:[],people:[],lean:[],sched:[],dayIx:-1,asked:0,improper:0,
+  S={case:null,C:null,log:[],mark:0,evMark:0,unlocked:[],notes:[],people:[],lean:[],sched:[],dayIx:-1,asked:0,improper:0,
      sc:{obj:[0,0],note:[0,0],read:[0,0],duty:[0,0]},res:{},myVote:{},firstVote:{},changed:[],
      out:null,sentence:null,my0:null,my1:null,anchor:null,jAvg:null,dutySeen:[]};
 }
@@ -387,6 +396,7 @@ reset();
 
 /* ================= voices by role ================= */
 function castOf(name){if(!S||!S.C)return null;for(const k in S.C.cast){if(S.C.cast[k].n===name)return S.C.cast[k];}return null;}
+function castName(short){if(!S.C||!short)return null;for(const k in S.C.cast){const n=S.C.cast[k].n;if(n.endsWith(short)||n.includes(' '+short))return n;}return null;}
 function voiceFor(who){
   if(who==='審判長')return {p:.72,r:.86,cv:'rounded',cr:.85,m:true};
   if(who==='陪席法官')return {p:.86,r:.92,cv:'rounded',cr:.92,m:false};
@@ -413,7 +423,7 @@ function roleClass(who){
 function scene(k,screen){const s=$('#scene');s.innerHTML=(SC[k]||SC.court)+(screen?`<div class="screen">${screen}</div>`:'');const f=s.firstChild;f&&f.classList&&f.classList.add('fade');}
 function stage(t,p){$('#stage').textContent=t;if(p!=null)$('#progress div').style.width=p+'%';}
 function setDay(t){$('#day').textContent=t;}
-function actions(h){$('#actions').innerHTML=h||'';$('#actions').scrollTop=0;}
+function actions(h){$('#actions').innerHTML=h||'';$('#actions').scrollTop=0;ctxScroll();}
 function setIssue(html){$('#issueText').innerHTML=html;$('#issue').classList.add('on');}
 function tally(){$('#tally').textContent=S&&S.notes.length?`｜筆記 ${S.notes.length} 則`:'';}
 let advance=null,typing=false,full='';
@@ -429,7 +439,7 @@ async function type(who,text){
   for(let i=0;i<text.length&&typing;i++){el.textContent=text.slice(0,i+1);await sleep(text.length>60?13:20);}
   typing=false;el.textContent=text;
 }
-async function say(who,text,sc){if(sc)scene(sc);await type(who,text);$('#next').classList.add('on');await new Promise(r=>advance=r);}
+async function say(who,text,sc){if(S&&S.C)S.log.push({who,text,day:S.dayIx+1});if(sc)scene(sc);await type(who,text);$('#next').classList.add('on');await new Promise(r=>advance=r);}
 async function show(who,text,sc){if(sc)scene(sc);await type(who,text);}
 function hideDialog(){$('#dialog').style.display='none';}
 function waitClick(sel){return new Promise(r=>{$$(sel).forEach(b=>b.addEventListener('click',()=>r(b.dataset.v),{once:true}));});}
@@ -440,6 +450,30 @@ function hideToast(){$('#toast').classList.remove('on');}
 function sheet(h){$('#sheet').innerHTML=h+'<button class="btn" id="closeM">回到法庭</button>';$('#modal').classList.add('on');$('#closeM').onclick=()=>$('#modal').classList.remove('on');$('#sheet').scrollTop=0;}
 $('#modal').addEventListener('click',e=>{if(e.target.id==='modal')$('#modal').classList.remove('on');});
 function bump(){const b=$('#locker');b.classList.remove('bump');void b.offsetWidth;b.classList.add('bump');}
+
+/* ================= context recall: show what a question refers to ================= */
+function markSeg(){S.mark=S.log.length;S.evMark=S.unlocked.length;}
+function ctxHtml(o={}){
+  if(!S||!S.C)return '';
+  let lines=o.who?S.log.filter(l=>l.who===o.who):o.filter?S.log.filter(o.filter):S.log.slice(S.mark);
+  if(o.last)lines=lines.slice(-o.last);
+  const ids=new Set(o.who||o.filter||o.last?[]:S.unlocked.slice(S.evMark).map(e=>e.id));
+  String(o.text||'').replace(/[A-Z]\d/g,m=>{ids.add(m);return m;});
+  (o.ref||[]).forEach(i=>ids.add(i));
+  let evs=S.unlocked.filter(e=>ids.has(e.id));
+  if(o.who){const nm=o.who.split(' ').pop();evs=evs.concat(S.unlocked.filter(e=>e.kind==='test'&&e.title.includes(nm)&&!ids.has(e.id)));}
+  if(o.allEv)evs=S.unlocked.slice();
+  if(!lines.length&&!evs.length)return '';
+  const cnt=[lines.length?lines.length+' 句發言':'',evs.length?evs.length+' 項證據':''].filter(Boolean).join('、');
+  return `<details class="ctx" ${o.closed?'':'open'}><summary>${o.title||'回顧：這題相關的法庭內容'}<span>${cnt}</span></summary><div class="ctxb">${evs.map(e=>`<div class="ce"><b>${esc(e.title)}</b>｜${esc(e.desc)}</div>`).join('')}${lines.map(l=>`<p class="${l.who==='你（6 號）'?'me':''}"><b>${esc(l.who)}</b>：${esc(l.text)}</p>`).join('')}</div></details>`;
+}
+function ctxScroll(){$$('.ctxb').forEach(e=>e.scrollTop=e.scrollHeight);}
+function transcriptHtml(){
+  if(!S.log.length)return '<div class="lockedmsg">開庭後，法庭上每一句發言都會記在這裡。</div>';
+  let out='',d=-1;
+  S.log.forEach(l=>{if(l.day!==d){d=l.day;out+=`<p class="label" style="margin-top:6px">${d>0&&d<=S.C.days.length?'第 '+d+' 庭｜'+esc(S.C.days[d-1].date):d>S.C.days.length?'評議':'選任'}</p>`;}out+=`<p class="tline"><b>${esc(l.who)}</b>：${esc(l.text)}</p>`;});
+  return out;
+}
 
 /* ================= notebook ================= */
 function sideTag(side){if(!S.C||!side)return '';const t=side==='a'?S.C.sides.a:side==='b'?S.C.sides.b:'中立／待查';return `<i class="${side==='a'?'a':side==='b'?'b':''}">${esc(t)}</i>`;}
@@ -452,12 +486,13 @@ function calHtml(){
 function openBook(tab){
   tab=tab||'notes';
   if(!S.C){sheet('<h3>筆記本</h3><div class="lockedmsg">開始審理案件後，這裡會有你的筆記、證據櫃、人物利益分析和庭期表。</div>');return;}
-  const T=[['notes','筆記'],['ev','證據櫃'],['ppl','人物利益'],['cal','庭期']];
+  const T=[['notes','筆記'],['ev','證據櫃'],['log','庭審紀錄'],['ppl','人物'],['cal','庭期']];
   let body='';
   if(tab==='notes')body=`<p class="small">好筆記＝誰說的｜說了什麼｜限制或疑點。只寫法庭上出現的內容，感想另外標。</p>`+(S.notes.length?S.notes.map((n,i)=>noteHtml(n,i)).join(''):'<div class="lockedmsg">還沒有筆記。開庭後會一邊審理一邊教你記。</div>');
   if(tab==='ev')body=`<p class="small">卷證不併送：開庭前法官和國民法官都沒看過卷宗，只能用法庭上調查過的證據判斷。</p>`+(S.unlocked.length?S.unlocked.map(e=>`<div class="card ${e.kind==='test'?'warm':''}"><h4>${esc(e.title)}</h4>${esc(e.desc)}<div class="small">第 ${e.day} 庭・${e.kind==='test'?'證詞':'書證／物證'}</div></div>`).join(''):'<div class="lockedmsg">目前還是空的。</div>');
   if(tab==='ppl')body=`<p class="small">每個人都有自己的立場與利益。有利益不等於說謊，但他的話需要其他證據互相印證。</p>`+(S.people.length?S.people.map(p=>`<div class="card"><h4>${esc(p.who)}</h4><b>利益：</b>${esc(p.ans)}<br><b>可能強調：</b>${esc(p.push)}<br><b>可能淡化：</b>${esc(p.hide)}</div>`).join(''):'<div class="lockedmsg">休庭時做的人物利益分析會放在這裡。</div>');
   if(tab==='cal')body=calHtml();
+  if(tab==='log')body=`<p class="small">法庭上每一句發言的完整紀錄，可以隨時回來查。</p>`+transcriptHtml();
   sheet(`<h3>筆記本｜${esc(S.C.short)}</h3><div class="tabs">${T.map(t=>`<button class="tab ${t[0]===tab?'on':''}" data-t="${t[0]}">${t[1]}</button>`).join('')}</div>`+body);
   $$('#sheet .tab').forEach(b=>b.onclick=()=>openBook(b.dataset.t));
 }
@@ -506,7 +541,7 @@ const STEP={
   async obj(o){
     const c=S.C.cast[o.by];sfx('warn');
     await show(c.n,o.said,c.sc);
-    actions(`<div class="lesson"><p class="label">異議！換你猜</p><h4>審判長會怎麼裁定？</h4></div><div class="chips"><button class="chip s" data-v="s">異議成立</button><button class="chip k" data-v="o">異議駁回</button></div>`);
+    actions(ctxHtml({last:3,title:'回顧：被異議的那段問答'})+`<div class="lesson"><p class="label">異議！換你猜</p><h4>審判長會怎麼裁定？</h4></div><div class="chips"><button class="chip s" data-v="s">異議成立</button><button class="chip k" data-v="o">異議駁回</button></div>`);
     const v=await waitClick('.chip');const ok=v===o.rule;S.sc.obj[1]++;if(ok)S.sc.obj[0]++;actions('');
     await say('審判長',o.why);
     actions(`<div class="fb ${ok?'ok':'no'}"><b>${ok?'猜對了。':'這次猜錯了。'}</b>${o.teach}</div>`);await cont();
@@ -517,7 +552,7 @@ const STEP={
     let left=a.n;const used=new Set();
     while(left>0){
       const av=a.opts.map((o,i)=>[o,i]).filter(x=>!used.has(x[1]));if(!av.length)break;
-      actions(`<p class="label">國民法官補充詢問・剩 ${left} 題</p>`+av.map(([o,i],j)=>`<button class="opt" data-v="${i}"><b>${'ABCDE'[j]}</b>${esc(o.q)}</button>`).join('')+`<button class="btn ghost" data-v="x" style="font-size:14px;padding:9px">我沒有問題了</button>`);
+      actions(ctxHtml({title:'回顧：剛才的詰問與證詞'})+`<p class="label">國民法官補充詢問・剩 ${left} 題</p>`+av.map(([o,i],j)=>`<button class="opt" data-v="${i}"><b>${'ABCDE'[j]}</b>${esc(o.q)}</button>`).join('')+`<button class="btn ghost" data-v="x" style="font-size:14px;padding:9px">我沒有問題了</button>`);
       const v=await waitClick('#actions button');actions('');if(v==='x')break;
       const o=a.opts[+v];used.add(+v);
       await say('你（6 號）',o.q,'answer');
@@ -530,17 +565,17 @@ const STEP={
     hideDialog();scene('delib');bgm('delib');stage(r.title);
     actions(`<div class="recess"><p class="label">休庭・人性觀察</p><h4>${r.title}</h4>${r.intro||'法庭休息時，回想剛才雙方的互動：誰在問、為什麼這樣問、想讓你相信什麼。'}</div>`);await cont('開始觀察','btn amber');
     for(const q of r.qs){
-      actions(`<div class="recess"><p class="label">觀察題</p><h4>${q.q}</h4></div>`+q.opts.map((o,i)=>`<button class="opt" data-v="${i}"><b>${'ABCD'[i]}</b>${esc(o[0])}</button>`).join(''));
+      actions(ctxHtml({text:q.q+q.opts.map(o=>o[0]).join(''),ref:q.ref,title:'回顧：這段休庭前的法庭內容'})+`<div class="recess"><p class="label">觀察題</p><h4>${q.q}</h4></div>`+q.opts.map((o,i)=>`<button class="opt" data-v="${i}"><b>${'ABCD'[i]}</b>${esc(o[0])}</button>`).join(''));
       const i=+(await waitClick('.opt'));const o=q.opts[i];S.sc.read[1]++;if(o[1])S.sc.read[0]++;
       $$('#actions .opt').forEach((b,j)=>{b.disabled=true;if(q.opts[j][1])b.classList.add('right');else if(j===i)b.classList.add('wrong');});
       $('#actions').insertAdjacentHTML('beforeend',`<div class="fb ${o[1]?'ok':'no'}">${o[2]}${!o[1]?'<br><b>參考：</b>'+q.opts.find(x=>x[1])[2]:''}</div>`);
       await cont();
     }
-    bgm('trial');
+    markSeg();bgm('trial');
   },
   async interest(t){
     hideDialog();scene(t.sc||'delib');
-    actions(`<div class="recess"><p class="label">人物利益分析（可複選）</p><h4>${esc(t.who)}：他在乎什麼？</h4>${t.desc}</div>
+    actions(ctxHtml({who:t.who,title:`回顧：${t.who}說過的話`})+`<div class="recess"><p class="label">人物利益分析（可複選）</p><h4>${esc(t.who)}：他在乎什麼？</h4>${t.desc}</div>
       <div class="tl" id="iw">${t.opts.map((o,i)=>`<button class="chip" style="flex:0 0 auto;padding:8px 12px" data-i="${i}">${o}</button>`).join('')}</div><button class="btn" id="isub">送出</button>`);
     const sel=new Set();$$('#iw .chip').forEach(b=>b.onclick=()=>{const i=+b.dataset.i;sel.has(i)?sel.delete(i):sel.add(i);b.classList.toggle('sel');});
     await new Promise(r=>$('#isub').onclick=()=>{if(sel.size)r();else toast('至少選一項');});
@@ -550,7 +585,7 @@ const STEP={
     $('#isub').remove();
     $('#actions').insertAdjacentHTML('beforeend',`<div class="fb ${ok?'ok':'mid'}"><b>${ok?'分析得不錯。':'可以再想想。'}</b>參考答案已標色。<br><b>可能強調：</b>${t.push}<br><b>可能淡化：</b>${t.hide}<br>${t.note}</div>`);
     S.people.push({who:t.who,ans:t.ans.map(i=>t.opts[i]).join('、'),push:t.push,hide:t.hide});
-    await cont('記進人物利益頁');bump();
+    await cont('記進人物利益頁');bump();markSeg();
   },
   async motion(m){
     sfx('lock');await say('審判長','裁定：'+m.rule);
@@ -569,7 +604,7 @@ const STEP={
 /* ================= note-taking lessons (learn by doing) ================= */
 const NOTE={
   async pick(n){
-    actions(`<div class="lesson"><p class="label">${n.title}</p><h4>${n.q}</h4>${n.intro||''}</div>`+n.opts.map((o,i)=>`<button class="opt" data-v="${i}"><b>${'ABCD'[i]}</b>${esc(o[0])}</button>`).join(''));
+    actions(ctxHtml({text:n.q+n.opts.map(o=>o[0]).join(''),ref:n.ref})+`<div class="lesson"><p class="label">${n.title}</p><h4>${n.q}</h4>${n.intro||''}</div>`+n.opts.map((o,i)=>`<button class="opt" data-v="${i}"><b>${'ABCD'[i]}</b>${esc(o[0])}</button>`).join(''));
     const i=+(await waitClick('#actions .opt'));const o=n.opts[i];const top=Math.max(...n.opts.map(x=>x[1]));const best=n.opts.findIndex(x=>x[1]===top);
     S.sc.note[1]++;if(o[1]===top)S.sc.note[0]++;
     $$('#actions .opt').forEach((b,j)=>{b.disabled=true;if(j===best)b.classList.add('right');else if(j===i)b.classList.add('wrong');});
@@ -579,7 +614,7 @@ const NOTE={
   },
   async classify(n){
     const cats=['事實','推論','意見'];
-    actions(`<div class="lesson"><p class="label">${n.title}</p>${n.intro}</div>`+n.items.map((it,i)=>`<div class="cls" data-i="${i}"><span>${esc(it[0])}</span><div class="chips">${cats.map((c,j)=>`<button class="chip ${['s','k','u'][j]}" data-c="${c}">${c}</button>`).join('')}</div><div class="fbx"></div></div>`).join(''));
+    actions(ctxHtml({ref:n.ref})+`<div class="lesson"><p class="label">${n.title}</p>${n.intro}</div>`+n.items.map((it,i)=>`<div class="cls" data-i="${i}"><span>${esc(it[0])}</span><div class="chips">${cats.map((c,j)=>`<button class="chip ${['s','k','u'][j]}" data-c="${c}">${c}</button>`).join('')}</div><div class="fbx"></div></div>`).join(''));
     let done=0;
     await new Promise(r=>$$('.cls').forEach(box=>{const it=n.items[+box.dataset.i];
       box.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{
@@ -592,7 +627,7 @@ const NOTE={
   },
   async write(n){
     const sd=S.C.sides;
-    actions(`<div class="lesson"><p class="label">${n.title}</p><h4>${n.q||'換你自己寫一則筆記'}</h4>${n.intro||'格式：<b>誰｜說了什麼｜限制或疑點</b>。短一點沒關係，只寫法庭上出現的內容。'}</div>
+    actions(ctxHtml(castName(n.who)?{who:castName(n.who),title:`回顧：${n.who}的證詞`}:{})+`<div class="lesson"><p class="label">${n.title}</p><h4>${n.q||'換你自己寫一則筆記'}</h4>${n.intro||'格式：<b>誰｜說了什麼｜限制或疑點</b>。短一點沒關係，只寫法庭上出現的內容。'}</div>
       <textarea id="nt" maxlength="90" placeholder="${esc(n.hint)}"></textarea>
       <p class="label">這則筆記比較支持哪一邊？</p>
       <div class="chips"><button class="chip k" data-v="a">${esc(sd.a)}</button><button class="chip h" data-v="b">${esc(sd.b)}</button><button class="chip u" data-v="n">中立／待查</button></div>`);
@@ -612,7 +647,7 @@ const NOTE={
   },
   async order(n){
     const items=shuffle(n.items.map((t,i)=>({t,i})));let seq=[];
-    const draw=()=>{actions(`<div class="lesson"><p class="label">${n.title}</p><h4>${n.q}</h4>依時間先後，一個一個點。</div><div class="seq">${items.map(x=>{const k=seq.indexOf(x.i);return `<button class="${k>=0?'on':''}" data-i="${x.i}"><i>${k>=0?k+1:''}</i><span>${esc(x.t)}</span></button>`;}).join('')}</div><button class="btn ghost" id="sr" style="font-size:14px;padding:9px">重排</button>`);
+    const draw=()=>{actions(ctxHtml({allEv:true,filter:()=>false,closed:true,title:'回顧：證據櫃'})+`<div class="lesson"><p class="label">${n.title}</p><h4>${n.q}</h4>依時間先後，一個一個點。</div><div class="seq">${items.map(x=>{const k=seq.indexOf(x.i);return `<button class="${k>=0?'on':''}" data-i="${x.i}"><i>${k>=0?k+1:''}</i><span>${esc(x.t)}</span></button>`;}).join('')}</div><button class="btn ghost" id="sr" style="font-size:14px;padding:9px">重排</button>`);
       $('#sr').onclick=()=>{seq=[];draw();};
       $$('.seq button').forEach(b=>b.onclick=()=>{const i=+b.dataset.i;if(seq.includes(i))return;seq.push(i);if(seq.length===items.length)finish();else draw();});};
     let done;const p=new Promise(r=>done=r);
@@ -688,6 +723,8 @@ async function issueVote(iss){
   scene('delib');
   await show('審判長',iss.q);
   actions(`<div class="lesson"><p class="label">先寫再聽 ①</p><h4>${iss.q}</h4>在聽任何人發言之前，先寫下你自己的判斷。</div>
+    ${ctxHtml({allEv:true,filter:()=>false,closed:true,title:'回顧：所有調查過的證據'})}
+    ${S.notes.length?`<details class="ctx"><summary>回顧：我的筆記<span>${S.notes.length} 則</span></summary><div class="ctxb">${S.notes.map((n,i)=>noteHtml(n,i)).join('')}</div></details>`:''}
     <button class="opt" data-v="y"><b>A</b>${iss.yes}</button><button class="opt" data-v="n"><b>B</b>${iss.no}</button>
     <button class="btn ghost" id="gl" style="font-size:14px;padding:9px">？ 查名詞</button>`);
   $('#gl').onclick=()=>$('#help').click();
@@ -730,7 +767,7 @@ async function sentencing(C){
   await show('審判長',`最後一個議題：${out.label}，刑度多重？請先寫下並鎖定你的刑度，再聽其他人。法官會最後發言。`);
   if(P&&P.flags&&P.flags.includes('anchor')){actions(`<div class="warnbox"><b>你的側寫提醒</b>｜前測的骰子遊戲顯示你可能受隨機數字影響。檢察官的求刑也是一個「錨」。先回到筆記裡的量刑事由，再決定數字。</div>`);await cont('收到');}
   const def=Math.round((sn.min+sn.max)/2/6)*6;
-  actions(`<div class="card"><h4>參考</h4>${sn.ref}<div class="small">刑度範圍為遊戲簡化設定，未列出無期徒刑、死刑與罰金等選項。</div></div>
+  actions(ctxHtml({filter:l=>/求處|從輕|量刑|賠償|前案|悔|對不起|復健|提心吊膽|真相|回不來/.test(l.text),title:'回顧：科刑辯論與被害人陳述'})+`<div class="card"><h4>參考</h4>${sn.ref}<div class="small">刑度範圍為遊戲簡化設定，未列出無期徒刑、死刑與罰金等選項。</div></div>
     <div class="big" id="sv"></div><input type="range" id="sl" min="${sn.min}" max="${sn.max}" step="1" value="${def}">
     <div class="row"><span>${fmt(sn.min)}</span><span>${fmt(sn.max)}</span></div><button class="btn amber" data-v="1">鎖定我的刑度</button>`);
   let sl=$('#sl'),sv=$('#sv');let up=()=>sv.textContent='有期徒刑 '+fmt(+sl.value);sl.oninput=up;up();
@@ -829,7 +866,7 @@ async function playCase(key){
     if(i>0)await between(C.days[i-1],d);
     S.dayIx=i;setDay(`第 ${i+1} 庭｜${d.date}`);stage(d.title,Math.round((i+1)/(C.days.length+2)*100));bgm('trial');
     if(C.issueHtml&&i>0)setIssue(C.issueHtml);
-    await run(d.steps);
+    markSeg();await run(d.steps);
     await dayEnd(C,i);
   }
   S.dayIx=C.days.length;
