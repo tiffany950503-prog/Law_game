@@ -476,7 +476,8 @@ function transcriptHtml(){
 }
 
 /* ================= notebook ================= */
-function sideTag(side){if(!S.C||!side)return '';const t=side==='a'?S.C.sides.a:side==='b'?S.C.sides.b:'中立／待查';return `<i class="${side==='a'?'a':side==='b'?'b':''}">${esc(t)}</i>`;}
+const USE={P:['檢方會用','a'],D:['辯方會用','b'],both:['雙方都會用',''],cred:['影響可信度',''],n:['要和其他證據一起看','']};
+function sideTag(side){const u=USE[side];if(!u)return '';return `<i class="${u[1]}">${u[0]}</i>`;}
 function noteHtml(n,i,pick){return `<div class="note ${pick?'pick':''}" ${pick?`data-i="${i}"`:''}><div class="meta"><span>${esc(n.day)}</span><span>${esc(n.who||'')}</span>${sideTag(n.side)}</div>${esc(n.text)}</div>`;}
 function addNote(n){S.notes.push({day:S.dayIx>=0?`第 ${S.dayIx+1} 庭`:'',side:'n',...n});tally();bump();toast('已存進筆記本（右上角「筆」）',2200);}
 function unlock(id,title,desc,kind){if(S.unlocked.some(e=>e.id===id))return;sfx('evidence');S.unlocked.push({id,title,desc,kind,day:S.dayIx+1});bump();}
@@ -639,8 +640,9 @@ const NOTE={
     const sd=S.C.sides;
     actions(ctxHtml(castName(n.who)?{who:castName(n.who),title:`回顧：${n.who}的證詞`}:{})+`<div class="lesson"><p class="label">${n.title}</p><h4>${n.q||'換你自己寫一則筆記'}</h4>${n.intro||'格式：<b>誰｜說了什麼｜限制或疑點</b>。短一點沒關係，只寫法庭上出現的內容。'}</div>
       <textarea id="nt" maxlength="90" placeholder="${esc(n.hint)}"></textarea>
-      <p class="label">這則筆記比較支持哪一邊？</p>
-      <div class="chips"><button class="chip k" data-v="a">${esc(sd.a)}</button><button class="chip h" data-v="b">${esc(sd.b)}</button><button class="chip u" data-v="n">中立／待查</button></div>`);
+      <p class="label">這則筆記，在法庭上會被誰拿來用？</p>
+      <div class="tl">${Object.entries(USE).map(([k,u])=>`<button class="chip ${k==='P'?'k':k==='D'?'h':'u'}" style="flex:0 0 auto;padding:8px 12px" data-v="${k}">${u[0]}</button>`).join('')}</div>
+      <p class="small">不用決定它「偏向哪個結論」。先想雙方各會怎麼用它，評議時再綜合判斷。</p>`);
     const side=await waitClick('#actions .chip');
     const txt=($('#nt').value||'').trim();
     const issues=[];
@@ -668,6 +670,22 @@ const NOTE={
   },
 };
 NOTE.contra=NOTE.pick;
+NOTE.twoway=async function(n){
+  const steps=[['檢察官會怎麼用這個證據？',n.p,'P'],['辯護人可能怎麼回應？',n.d,'D']];const picked=[];
+  for(const [q,opts] of steps){
+    actions(ctxHtml({ref:[n.ev],filter:()=>false,title:'回顧：這項證據'})+`<div class="lesson"><p class="label">${n.title||'兩面讀證據'}</p><h4>${q}</h4>同一個證據，雙方會讀出不同的意思。先站在他們的位置想一想。</div>`+opts.map((o,i)=>`<button class="opt" data-v="${i}"><b>${'ABC'[i]}</b>${esc(o[0])}</button>`).join(''));
+    const i=+(await waitClick('#actions .opt'));const o=opts[i];S.sc.note[1]++;if(o[1])S.sc.note[0]++;
+    const best=opts.find(x=>x[1]);picked.push(best[0]);
+    $$('#actions .opt').forEach((b,j)=>{b.disabled=true;if(opts[j][1])b.classList.add('right');else if(j===i)b.classList.add('wrong');});
+    $('#actions').insertAdjacentHTML('beforeend',`<div class="fb ${o[1]?'ok':'no'}">${o[2]}</div>`);
+    await cont();
+  }
+  actions(ctxHtml({ref:[n.ev],filter:()=>false,title:'回顧：這項證據'})+`<div class="lesson"><p class="label">${n.title||'兩面讀證據'}</p><h4>這個證據單獨看，能決定本案的爭點嗎？</h4></div><button class="opt" data-v="y"><b>A</b>能，它已經足夠說明答案</button><button class="opt" data-v="n"><b>B</b>不能，要和其他證據一起看</button>`);
+  const v=await waitClick('#actions .opt');S.sc.note[1]++;if(v==='n')S.sc.note[0]++;
+  $('#actions').insertAdjacentHTML('beforeend',`<div class="fb ${v==='n'?'ok':'mid'}">${n.fb}</div>`);
+  await cont('存進筆記本');
+  addNote({who:n.who,side:'both',issue:'i1',text:`${n.who}｜檢：${picked[0]}｜辯：${picked[1]}`});
+};
 const K57={'一':'犯罪之動機、目的','二':'犯罪時所受之刺激','三':'犯罪之手段','四':'生活狀況','五':'品行','六':'智識程度','七':'與被害人之關係','八':'違反義務之程度','九':'犯罪所生之危險或損害','十':'犯罪後之態度'};
 NOTE.k57=async function(n){
   actions(ctxHtml({text:n.label,ref:n.ref})+`<div class="lesson"><p class="label">量刑標記｜刑法第 57 條</p><h4>這項資料對刑度的影響？</h4><b>第 ${n.k} 款</b>｜${K57[n.k]}<br><span class="small">${esc(n.label)}</span></div>
@@ -736,10 +754,11 @@ async function oath(){
 /* ================= day end: provisional belief ================= */
 async function dayEnd(C,i){
   hideDialog();scene('court');
-  const last=S.lean.length?S.lean[S.lean.length-1].v:50;
-  actions(`<div class="lean"><p class="label">第 ${i+1} 庭結束・你的暫時心證</p><h4 style="font-size:15.5px;margin:4px 0 6px">${C.lean.q}</h4><div class="ends"><span>${esc(C.lean.a)}</span><span>${esc(C.lean.b)}</span></div><input type="range" id="ln" min="0" max="100" value="${last}"><p class="small">這只是暫時的傾向，評議前不要定案。最後會給你看這條心證軌跡。</p></div>`);
-  await cont('記錄心證並休庭');
-  S.lean.push({label:`第${i+1}庭`,v:+($('#ln')||{value:last}).value});
+  const lv=S.lean.filter(p=>p.v!=null);const last=lv.length?lv[lv.length-1].v:50;
+  actions(`<div class="lean"><p class="label">第 ${i+1} 庭結束・你的暫時心證</p><h4 style="font-size:15.5px;margin:4px 0 6px">${C.lean.q}</h4><div class="ends"><span>${esc(C.lean.a)}</span><span>${esc(C.lean.b)}</span></div><input type="range" id="ln" min="0" max="100" value="${last}"><p class="small">這只是暫時的傾向，評議前不要定案。還無法判斷也完全沒問題，那代表你在等更多證據。</p></div>
+    <button class="btn" data-v="rec">記錄心證並休庭</button><button class="btn ghost" data-v="skip">先不表態，休庭</button>`);
+  const v=await waitClick('#actions .btn');
+  S.lean.push({label:`第${i+1}庭`,v:v==='rec'?+($('#ln')||{value:last}).value:null});actions('');
 }
 
 /* ================= deliberation ================= */
@@ -834,17 +853,19 @@ async function verdict(C){
   review(C);
 }
 function leanChart(C){
-  if(!S.lean.length)return '';
-  const W=300,H=130,pl=26,pr=26,pt=22,pb=24,n=S.lean.length;
+  const L=S.lean.filter(p=>p.v!=null);const skip=S.lean.length-L.length;
+  if(!L.length)return '<div class="lockedmsg">你每個庭期都選擇先不表態，一直等到評議才形成判斷。這正是國民法官被期待的做法。</div>';
+  const note=skip?`<p class="small">有 ${skip} 個庭期你選擇先不表態。</p>`:'';
+  const W=300,H=130,pl=26,pr=26,pt=22,pb=24,n=L.length;
   const x=i=>pl+(n===1?(W-pl-pr)/2:i*(W-pl-pr)/(n-1)),y=v=>pt+v/100*(H-pt-pb);
-  const pts=S.lean.map((p,i)=>`${x(i).toFixed(1)},${y(p.v).toFixed(1)}`).join(' ');
+  const pts=L.map((p,i)=>`${x(i).toFixed(1)},${y(p.v).toFixed(1)}`).join(' ');
   return `<div class="chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="心證軌跡">
     <rect x="${pl}" y="${pt}" width="${W-pl-pr}" height="${H-pt-pb}" fill="#F4F6F5"/>
     <line x1="${pl}" x2="${W-pr}" y1="${y(50)}" y2="${y(50)}" stroke="#C5D1CE" stroke-dasharray="4 4"/>
     <text x="4" y="13" font-size="11" fill="#9A3328" font-weight="700">${esc(C.lean.a)}</text>
     <text x="${W-4}" y="${H-6}" font-size="11" fill="#22578C" font-weight="700" text-anchor="end">${esc(C.lean.b)}</text>
     <polyline points="${pts}" fill="none" stroke="#0E7C74" stroke-width="3" stroke-linejoin="round"/>
-    ${S.lean.map((p,i)=>`<circle cx="${x(i)}" cy="${y(p.v)}" r="5" fill="#0E7C74"/><text x="${x(i)}" y="${y(p.v)-9}" font-size="10.5" fill="#13233F" text-anchor="middle">${p.label}</text>`).join('')}
+    ${L.map((p,i)=>`<circle cx="${x(i)}" cy="${y(p.v)}" r="5" fill="#0E7C74"/><text x="${x(i)}" y="${y(p.v)-9}" font-size="10.5" fill="#13233F" text-anchor="middle">${p.label}</text>`).join('')}
   </svg></div>`;
 }
 function selfCheck(){
@@ -1147,6 +1168,10 @@ CASES.murder={
   {card:'本案爭點',navy:true,html:'王鈞刺下去時，是想讓陳辰<b style="color:#E8B04A">死</b>，還是只想讓他<b style="color:#5FD3C4">受傷</b>？<br>殺人故意 → 殺人未遂罪（重）<br>傷害故意 → 傷害罪（輕）',btn:'記住了'},
   {issue:'爭點：<b>殺意？</b>還是<b>傷害？</b>'},
   {ev:'A1',t:'扣案水果刀',d:'全長 25 公分，刀刃 15 公分、最寬約 3 公分，上方有鋸齒。',hint:'請注意刀的長度與鋒利程度。'},
+  {note:{kind:'twoway',ev:'A1',who:'A1 水果刀',
+   p:[['刀刃 15 公分、有鋸齒，被告帶的是足以致命的兇器',1,'對。兇器的種類和危險性，是法院判斷殺意時常看的因素之一。'],['刀是被告家的，所以他一定有罪',0,'刀是誰的，和「刺下去時想要什麼」沒有直接關係。']],
+   d:[['這是家裡削水果的刀，可能是順手拿的，不是特別挑選來殺人的',1,'對。「有沒有刻意挑選兇器」常被拿來推論犯意強弱，辯方之後也會傳證人證明刀平常放在哪裡。'],['刀不夠鋒利，不可能殺人',0,'這和證據矛盾：刀有鋸齒、刀尖鋒利。辯方不會提出明顯站不住的主張。']],
+   fb:'對。殺意通常是綜合判斷：兇器、部位、次數、力道、說了什麼、事後做了什麼，一起看。單一證據很少能自己決定答案。'}},
   {ev:'A2',t:'現場照片',d:'門口地面有大片血跡，集中在門檻內外約一公尺內。'},
   {ev:'A3',t:'診斷證明書',d:'左腹部穿刺傷，寬約 3 公分、深 6 公分，未傷及內臟，併發出血性休克，曾發病危通知，住院 8 天。',gd:'左腹部穿刺傷，曾發病危通知，住院 8 天。'},
   {card:'交互詰問怎麼進行？',html:'① <b>主詰問</b>：傳喚的一方先問，不能誘導<br>② <b>反詰問</b>：對方挑戰證詞，可以誘導<br>③ 覆主詰問、覆反詰問：補充澄清<br>觀察重點：<b>誰在問、想讓你相信什麼、刻意不問什麼</b>。'},
@@ -1353,6 +1378,10 @@ CASES.dui={
    ['被告很誠實。',0,'這是評價，評議時用不上。'],
    ['E5｜0:12 路人喊「白車」→ 0:15 被告說「是我開的、我有喝酒」｜✱車旁 2 人，員警知道「哪台車」，但知道「誰開車」嗎？',2,'好！自首的爭點就是「犯罪是否已被發覺」。記下秒數和「車旁兩個人」，評議時就能精準討論。'],
    ['路人指認了，所以不是自首。',0,'這跳過了關鍵：路人指的是車，不是人。']],save:{who:'E5 密錄器',side:'n',issue:'i1'}}},
+  {note:{kind:'twoway',ev:'E5',who:'E5 密錄器',
+   p:[['路人先喊出白車，員警已經有懷疑的對象，被告只是早晚被找到前先承認',1,'對。這是檢方否定自首的核心：犯罪已經被「發覺」。'],['被告自己承認，就證明他有罪',0,'被告已經認罪，這不是本案的爭點。']],
+   d:[['車旁有兩個人，員警不知道誰開車，是被告主動說出自己是駕駛、也說了有喝酒',1,'對。辯方會主張：知道「哪台車」不等於知道「誰犯罪」。'],['3 秒太短，影片不準',0,'辯方沒有理由質疑對自己有利的影片。']],
+   fb:'對。同一段 3 秒鐘的影片，雙方讀法完全相反。還要等張警員和路人作證，才知道員警當時到底知道多少。'}},
   {tree:[['駕駛動力交通工具','E2 監視器拍到被告開車進入路口'],['吐氣酒精濃度達每公升 0.25 毫克以上','E1 酒測 0.48 毫克'],['有人死亡','E3 死亡證明書'],['死亡是酒駕肇事造成的（因果關係）','E2 監視器＋E3 死亡證明書']],after:'四個條件都有已調查的證據支持，罪名成立沒有爭議。接下來的重點是自首與刑度。'},
   {recess:{title:'上午休庭',qs:[
    {q:'被告已經認罪，辯護人為什麼還要在開審陳述花很多時間講「打 119、陪在傷者旁邊」？',opts:[
@@ -1431,7 +1460,7 @@ CASES.dui={
   {note:{kind:'contra',title:'筆記教室 4｜兩位新證人放在一起看',q:'吳姓路人和張警員的證詞放在一起，關於「犯罪是否已被發覺」最準確的整理是？',opts:[
    ['路人和員警都只知道「哪台車」，都不知道「誰開車」；被告主動說出自己是駕駛和有喝酒',1,'對。兩人獨立地說出同一件事，彼此補強。至於這樣算不算「已發覺」，就是評議要決定的法律評價了。'],
    ['路人看到被告下車，所以已經發覺',0,'路人說他沒看到誰從駕駛座下來。'],
-   ['員警聞到酒味才知道是被告',0,'員警說被告開口之後，他走近才聞到。']],save:{who:'自首比對',side:'a',issue:'i1',text:'路人＋員警：只知道「哪台車」，不知「誰開車」｜被告3秒後主動說是駕駛＋有喝酒'}}},
+   ['員警聞到酒味才知道是被告',0,'員警說被告開口之後，他走近才聞到。']],save:{who:'自首比對',side:'D',issue:'i1',text:'路人＋員警：只知道「哪台車」，不知「誰開車」｜被告3秒後主動說是駕駛＋有喝酒'}}},
   ['J','被告周志明，你可以選擇不陳述。你要說明嗎？','dui_def'],
   ['W','我要說。尾牙喝完，我在車上休息了快兩個小時，以為沒事了。路口黃燈，我想衝過去，沒想到對面已經有機車起步……我馬上下車打 119。'],
   ['P','你為什麼不叫代駕？'],
@@ -1532,6 +1561,10 @@ CASES.affair={
   {ev:'B1',t:'現場勘查報告',d:'主臥室門由內反鎖（喇叭鎖），門縫膠帶貼在門的內側。陽台落地窗關著但「未上鎖」，下方塞有毛巾。陽台連通主臥與女兒房。',hint:'請注意：膠帶在內側；陽台通往被告當晚睡的女兒房。'},
   {ev:'B2',t:'解剖與毒物報告',d:'一氧化碳血紅素 62%，死因為一氧化碳中毒。血中 zolpidem（安眠藥成分）濃度明顯高於治療劑量；血中酒精 0.06%。身上沒有抵抗傷。',gd:'死因為一氧化碳中毒；血中有高濃度安眠藥與少量酒精；身上沒有抵抗傷。'},
   {ev:'B3',t:'藥袋與處方紀錄',d:'被告 3/1 領取 zolpidem 30 顆，每晚 1 顆。3/15 查扣時剩 6 顆。依處方應剩約 16 顆，約少 10 顆。死者本人沒有這種藥的處方。藥瓶放在共用浴室的櫃子。'},
+  {note:{kind:'twoway',ev:'B3',who:'B3 藥袋',
+   p:[['藥是被告的處方，少了大約 10 顆，死者自己沒有這種藥',1,'對。檢方要把「藥從哪裡來」連到被告身上。'],['被告有吃安眠藥，代表她精神不穩定',0,'失眠就醫和殺人沒有關係，這種推論也會造成對病人的汙名。']],
+   d:[['藥放在共用浴室的櫃子，家裡每個人都拿得到，死者也可以自己拿',1,'對。辯方不需要證明「是死者拿的」，只要讓你看到「死者也拿得到」。'],['被告記錯藥的數量，所以藥沒有少',0,'處方紀錄和查扣數量都是客觀資料，辯方很難推翻，比較好的策略是解釋「誰都拿得到」。']],
+   fb:'對。「藥是她的」和「是她下的藥」中間，還隔著一段需要其他證據補上的距離。'}},
   {ev:'B4',t:'酒杯鑑驗',d:'兩只紅酒杯：死者的杯中殘留 zolpidem；被告的杯子沒有。酒瓶內沒有驗出藥物。'},
   {note:{kind:'pick',title:'筆記教室 2｜證據也有兩面',q:'「藥只在死者的杯子裡」這則證據，哪一則筆記最完整？',opts:[
    ['B4｜藥只在死者杯中 → 是被告下的藥',0,'這跳過了另一種可能：死者自己把藥放進自己的杯子。'],
@@ -1721,6 +1754,10 @@ CASES.land={
   {ev:'L1',t:'土地洽談紀錄',d:'鴻運開發 2025/1～5 月與古阿松洽談 7 次，出價從每坪 3 萬提高到 6 萬，古阿松皆拒絕。5/20 紀錄備註（鄭國棟手寫）：「最後一戶，月底前處理掉」。'},
   {ev:'L2',t:'解剖報告',d:'右側肋骨骨折 3 根、胸部與背部多處鈍挫傷。死因：胸部鈍傷誘發急性心肌梗塞。死者生前有冠狀動脈疾病。',gd:'肋骨骨折與多處挫傷；死因為外傷誘發心肌梗塞；死者生前有心臟病。'},
   {ev:'L3',t:'匯款紀錄',d:'6/3 10:12 鴻運開發匯 50 萬至黃志彪個人帳戶，摘要「整地顧問費」。公司其他顧問費均附有書面契約，這筆沒有。'},
+  {note:{kind:'twoway',ev:'L3',who:'L3 匯款',
+   p:[['毆打隔天就匯 50 萬，而且沒有契約，看起來像事成之後的酬勞',1,'對。時間點和「沒有契約」的異常，是檢方要你注意的地方。'],['公司有錢，所以一定會買通別人',0,'這是對「財團」的成見，不是從這筆匯款推出來的。']],
+   d:[['黃志彪之前幫公司處理過工地的事，這可能是真的顧問費，只是契約還沒補',1,'對。辯方會提供一個「合法的解釋」，之後也會傳會計來說明。'],['匯款是會計自己決定的，董事長不知道',0,'辯方要小心這個說法：如果之後證據顯示董事長親自交代，可信度會大受影響。']],
+   fb:'對。一筆匯款本身只告訴你「錢從哪裡到哪裡」，至於「為什麼」，要靠通聯、證人和其他紀錄一起判斷。'}},
   ['J','請證人陳金水村長到應訊台。由檢察官主詰問。','victim_sad'],
   ['P','村長，您對這個度假村開發案的立場是？'],
   ['C','我是支持的。開發案會幫村裡鋪路、蓋活動中心，很多年輕人可以回來工作。'],
@@ -1736,7 +1773,7 @@ CASES.land={
   {note:{kind:'pick',title:'筆記教室 2｜注意「誰說了對自己不利的話」',q:'村長的證詞，哪一則筆記最能幫你評議？',opts:[
    ['村長｜聽到鄭說「不賣的，我有的是辦法」｜✱村長支持開發案，卻說出對鄭不利的話｜也承認可能指加價',2,'好！村長的立場本來偏向開發商，他還是說出這句話，可信度通常比較高。同時你也記下了另一種解讀。'],
    ['鄭國棟威脅古阿松。',0,'「威脅」是你的解讀，而且剛才審判長才說過：這由你判斷，證人不能下結論。'],
-   ['村長說鄭有辦法。',1,'太簡略，少了原話和「村長支持開發」這個重要背景。']],save:{who:'村長',side:'a',issue:'i1'}}},
+   ['村長說鄭有辦法。',1,'太簡略，少了原話和「村長支持開發」這個重要背景。']],save:{who:'村長',side:'cred',issue:'i1'}}},
   {gentle:'接下來是被害人孫女的證詞，可能讓人難過。'},
   ['J','請告訴人古心怡到應訊台。由檢察官主詰問。','witness'],
   ['G','阿公說那塊地是阿祖開墾的，賣了就對不起祖先。五月底開始，家裡常接到電話，有人說「再不簽，晚上睡覺小心」。'],
@@ -1824,7 +1861,7 @@ CASES.land={
   {note:{kind:'contra',title:'筆記教室 4｜把三份證據對起來',q:'通聯紀錄（L4）、林俊宏、劉淑芬放在一起，哪個觀察最準確？',opts:[
    ['20:14 的通話時間，和林俊宏說「講完電話」的時間吻合；50 萬由鄭親自交代且沒契約。這些證據獨立於黃志彪，部分支持他的說法',1,'對。這就是「補強」：不靠黃志彪本人，也能看到時間、金流和他的說法吻合。但電話內容仍沒有人直接聽到。'],
    ['劉淑芬拒絕回答，證明公司做假帳',0,'拒絕證言是證人的權利，不能直接推論事實存在。'],
-   ['林俊宏聽到鄭國棟親口下令',0,'林俊宏說他沒聽到電話另一頭。']],save:{who:'補強',side:'a',issue:'i1',text:'20:14 鄭→黃通話3分 ≈ 林俊宏說「講完電話」｜50萬鄭親自交代、無契約｜但沒人直接聽到電話內容'}}},
+   ['林俊宏聽到鄭國棟親口下令',0,'林俊宏說他沒聽到電話另一頭。']],save:{who:'補強',side:'P',issue:'i1',text:'20:14 鄭→黃通話3分 ≈ 林俊宏說「講完電話」｜50萬鄭親自交代、無契約｜但沒人直接聽到電話內容'}}},
   ['J','被告鄭國棟，你可以選擇不陳述，不會因此對你不利。你要說明嗎？','dui_side'],
   ['D','審判長，被告依法行使緘默權，不陳述。'],
   ['W','（點頭，沒有說話）'],
@@ -1916,6 +1953,10 @@ CASES.kidnap={
   {card:'本案兩個爭點',navy:true,html:'① 吳俊傑拘禁蘇志遠，是<b style="color:#E8B04A">意圖勒贖</b>（不法取得財物），還是<b style="color:#5FD3C4">為了討回真實的債務</b>？<br>② 蘇志遠跳窗造成的<b>重傷</b>，能否歸責給吳俊傑？',btn:'記住了'},
   {issue:'爭點：<b>勒贖</b>還是<b>討債</b>？重傷<b>能否歸責</b>？'},
   {ev:'K1',t:'合夥契約與欠條',d:'2019 年合夥契約：吳出資 300 萬、蘇出資 100 萬並負責經營。2024/12/20 欠條：「蘇志遠積欠吳俊傑新台幣參佰萬元，於 2025 年 6 月 30 日前清償」，蘇志遠親筆簽名。',by:'D'},
+  {note:{kind:'twoway',ev:'K1',who:'K1 欠條',
+   p:[['欠條上只寫 300 萬，被告卻打算要更多；而且被害人說欠條是被逼簽的',1,'對。檢方會說：就算有債務，被告想要的也超過他有權利拿的錢。'],['有欠條代表被告早就計畫好要綁人',0,'欠條是一年前簽的，看不出和綁架計畫有關。']],
+   d:[['欠條是被害人親筆簽的，債務是真的，被告是在討自己的錢',1,'對。這是辯方的地基：真實債權存在，就可能不是「勒贖」。'],['欠條是假的，所以被告沒有錯',0,'這會傷害辯方自己。辯方需要欠條是真的。']],
+   fb:'對。欠條能證明「曾經有債務約定」，但簽的時候是否自願、被告實際想要多少錢，還要看筆跡鑑定、會計師和錄音。'}},
   {ev:'K2',t:'通話錄音（蘇妻手機）',d:'8/10 10:05 被告：「三百萬，一毛都不能少，再加五十萬，算他讓我等這麼久。明天中午前，不然你們就見不到他了。」'},
   {ev:'K3',t:'診斷證明書',d:'腰椎第一節爆裂性骨折，雙下肢肌力明顯減弱，經手術後仍須長期復健，醫師評估難以完全恢復。',gd:'腰椎骨折，雙腿行動能力受損，需長期復健。'},
   ['J','請被害人蘇志遠到應訊台。由檢察官主詰問。','victim'],
@@ -2101,6 +2142,10 @@ CASES.bribe={
   {card:'本案兩個爭點',navy:true,html:'① 80 萬是<b style="color:#E8B04A">賄賂</b>（和職務有對價關係），還是<b style="color:#5FD3C4">借款</b>？<br>② 如果是賄賂，林正雄是不是用「違背職務」的行為（洩漏底價相關資訊）來交換？',btn:'記住了'},
   {issue:'爭點：80 萬是<b>賄賂</b>還是<b>借款</b>？有沒有<b>違背職務</b>？'},
   {ev:'Q1',t:'決標紀錄',d:'底價 4,800 萬（4/18 08:30 鎮長核定密封）。宏達 4,791 萬（99.81%）得標；另兩家 4,880 萬、4,920 萬，高於底價。被告簽辦的預估金額為 4,830 萬。'},
+  {note:{kind:'twoway',ev:'Q1',who:'Q1 決標紀錄',
+   p:[['只比底價低 0.19%，準得不尋常，很可能有人透露了資訊',1,'對。檢方會用「巧合的機率很低」來暗示有內線。'],['得標的廠商一定是壞廠商',0,'得標本身不是犯罪。']],
+   d:[['另兩家都投在底價之上；預估金額是 4,830 萬，廠商可能自己算得到接近的數字',1,'對。辯方會提出其他能解釋「為什麼這麼準」的可能。'],['底價根本不重要',0,'底價是本案的核心，辯方不會這樣說。']],
+   fb:'對。「準得不尋常」只說明需要解釋，不說明是哪一種解釋。之後的統計專家、鎮長和行賄者的證詞，才會讓答案越來越清楚。'}},
   {ev:'Q2',t:'借據',d:'日期 2024/4/26，「林正雄向陳志忠借款新台幣捌拾萬元」。無利息、無還款期限，雙方簽名。',by:'D'},
   {ev:'Q3',t:'還款與醫療紀錄',d:'林母 2024/5/3 心臟支架手術，自費 62 萬，5/2 以現金繳清。2025/3/2 調查局搜索宏達；2025/3/9 林正雄匯 20 萬給陳志忠。',by:'D'},
   {note:{kind:'pick',title:'筆記教室 2｜時間點就是證據',q:'Q2、Q3 放在一起，哪一則筆記最有用？',opts:[
@@ -2192,7 +2237,7 @@ CASES.bribe={
   {note:{kind:'contra',title:'筆記教室 4｜一份證據，兩種讀法',q:'帳冊寫「林 80（公關）」，最準確的筆記是？',opts:[
    ['帳冊把 80 萬記成「公關」，不是借出款；但「公關」也用在禮金。比較不像借款，但不能單獨證明是對價',1,'對。如果是借款，生意人通常會記成應收或借出。這點對辯方不利；但「公關」本身也不等於賄賂。'],
    ['帳冊證明是賄賂',0,'「證明」說得太滿。「公關」有多種用途。'],
-   ['帳冊和本案無關',0,'它是當時寫下的紀錄，在雙方爭執前就存在，很有參考價值。']],save:{who:'Q4 帳冊',side:'a',issue:'i1',text:'帳冊 4/26「林 80（公關）」，非借出／應收｜但「公關」也記禮金 → 不像借款，仍需看對價'}}},
+   ['帳冊和本案無關',0,'它是當時寫下的紀錄，在雙方爭執前就存在，很有參考價值。']],save:{who:'Q4 帳冊',side:'P',issue:'i1',text:'帳冊 4/26「林 80（公關）」，非借出／應收｜但「公關」也記禮金 → 不像借款，仍需看對價'}}},
   ['J','被告林正雄，你可以選擇不陳述。你要說明嗎？','defendant'],
   ['W','我要說。我媽要開刀，我手上的錢不夠。志忠是我二十年的朋友，他說先拿去用。我說一定要寫借據。'],
   ['W','海產店那天，我確實說了預估金額，也說了鎮長大概抓九九折。我以為這是業界都知道的事，我沒有想到這樣也算洩密。'],

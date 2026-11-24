@@ -89,7 +89,8 @@ function transcriptHtml(){
 }
 
 /* ================= notebook ================= */
-function sideTag(side){if(!S.C||!side)return '';const t=side==='a'?S.C.sides.a:side==='b'?S.C.sides.b:'中立／待查';return `<i class="${side==='a'?'a':side==='b'?'b':''}">${esc(t)}</i>`;}
+const USE={P:['檢方會用','a'],D:['辯方會用','b'],both:['雙方都會用',''],cred:['影響可信度',''],n:['要和其他證據一起看','']};
+function sideTag(side){const u=USE[side];if(!u)return '';return `<i class="${u[1]}">${u[0]}</i>`;}
 function noteHtml(n,i,pick){return `<div class="note ${pick?'pick':''}" ${pick?`data-i="${i}"`:''}><div class="meta"><span>${esc(n.day)}</span><span>${esc(n.who||'')}</span>${sideTag(n.side)}</div>${esc(n.text)}</div>`;}
 function addNote(n){S.notes.push({day:S.dayIx>=0?`第 ${S.dayIx+1} 庭`:'',side:'n',...n});tally();bump();toast('已存進筆記本（右上角「筆」）',2200);}
 function unlock(id,title,desc,kind){if(S.unlocked.some(e=>e.id===id))return;sfx('evidence');S.unlocked.push({id,title,desc,kind,day:S.dayIx+1});bump();}
@@ -252,8 +253,9 @@ const NOTE={
     const sd=S.C.sides;
     actions(ctxHtml(castName(n.who)?{who:castName(n.who),title:`回顧：${n.who}的證詞`}:{})+`<div class="lesson"><p class="label">${n.title}</p><h4>${n.q||'換你自己寫一則筆記'}</h4>${n.intro||'格式：<b>誰｜說了什麼｜限制或疑點</b>。短一點沒關係，只寫法庭上出現的內容。'}</div>
       <textarea id="nt" maxlength="90" placeholder="${esc(n.hint)}"></textarea>
-      <p class="label">這則筆記比較支持哪一邊？</p>
-      <div class="chips"><button class="chip k" data-v="a">${esc(sd.a)}</button><button class="chip h" data-v="b">${esc(sd.b)}</button><button class="chip u" data-v="n">中立／待查</button></div>`);
+      <p class="label">這則筆記，在法庭上會被誰拿來用？</p>
+      <div class="tl">${Object.entries(USE).map(([k,u])=>`<button class="chip ${k==='P'?'k':k==='D'?'h':'u'}" style="flex:0 0 auto;padding:8px 12px" data-v="${k}">${u[0]}</button>`).join('')}</div>
+      <p class="small">不用決定它「偏向哪個結論」。先想雙方各會怎麼用它，評議時再綜合判斷。</p>`);
     const side=await waitClick('#actions .chip');
     const txt=($('#nt').value||'').trim();
     const issues=[];
@@ -281,6 +283,22 @@ const NOTE={
   },
 };
 NOTE.contra=NOTE.pick;
+NOTE.twoway=async function(n){
+  const steps=[['檢察官會怎麼用這個證據？',n.p,'P'],['辯護人可能怎麼回應？',n.d,'D']];const picked=[];
+  for(const [q,opts] of steps){
+    actions(ctxHtml({ref:[n.ev],filter:()=>false,title:'回顧：這項證據'})+`<div class="lesson"><p class="label">${n.title||'兩面讀證據'}</p><h4>${q}</h4>同一個證據，雙方會讀出不同的意思。先站在他們的位置想一想。</div>`+opts.map((o,i)=>`<button class="opt" data-v="${i}"><b>${'ABC'[i]}</b>${esc(o[0])}</button>`).join(''));
+    const i=+(await waitClick('#actions .opt'));const o=opts[i];S.sc.note[1]++;if(o[1])S.sc.note[0]++;
+    const best=opts.find(x=>x[1]);picked.push(best[0]);
+    $$('#actions .opt').forEach((b,j)=>{b.disabled=true;if(opts[j][1])b.classList.add('right');else if(j===i)b.classList.add('wrong');});
+    $('#actions').insertAdjacentHTML('beforeend',`<div class="fb ${o[1]?'ok':'no'}">${o[2]}</div>`);
+    await cont();
+  }
+  actions(ctxHtml({ref:[n.ev],filter:()=>false,title:'回顧：這項證據'})+`<div class="lesson"><p class="label">${n.title||'兩面讀證據'}</p><h4>這個證據單獨看，能決定本案的爭點嗎？</h4></div><button class="opt" data-v="y"><b>A</b>能，它已經足夠說明答案</button><button class="opt" data-v="n"><b>B</b>不能，要和其他證據一起看</button>`);
+  const v=await waitClick('#actions .opt');S.sc.note[1]++;if(v==='n')S.sc.note[0]++;
+  $('#actions').insertAdjacentHTML('beforeend',`<div class="fb ${v==='n'?'ok':'mid'}">${n.fb}</div>`);
+  await cont('存進筆記本');
+  addNote({who:n.who,side:'both',issue:'i1',text:`${n.who}｜檢：${picked[0]}｜辯：${picked[1]}`});
+};
 const K57={'一':'犯罪之動機、目的','二':'犯罪時所受之刺激','三':'犯罪之手段','四':'生活狀況','五':'品行','六':'智識程度','七':'與被害人之關係','八':'違反義務之程度','九':'犯罪所生之危險或損害','十':'犯罪後之態度'};
 NOTE.k57=async function(n){
   actions(ctxHtml({text:n.label,ref:n.ref})+`<div class="lesson"><p class="label">量刑標記｜刑法第 57 條</p><h4>這項資料對刑度的影響？</h4><b>第 ${n.k} 款</b>｜${K57[n.k]}<br><span class="small">${esc(n.label)}</span></div>
@@ -349,10 +367,11 @@ async function oath(){
 /* ================= day end: provisional belief ================= */
 async function dayEnd(C,i){
   hideDialog();scene('court');
-  const last=S.lean.length?S.lean[S.lean.length-1].v:50;
-  actions(`<div class="lean"><p class="label">第 ${i+1} 庭結束・你的暫時心證</p><h4 style="font-size:15.5px;margin:4px 0 6px">${C.lean.q}</h4><div class="ends"><span>${esc(C.lean.a)}</span><span>${esc(C.lean.b)}</span></div><input type="range" id="ln" min="0" max="100" value="${last}"><p class="small">這只是暫時的傾向，評議前不要定案。最後會給你看這條心證軌跡。</p></div>`);
-  await cont('記錄心證並休庭');
-  S.lean.push({label:`第${i+1}庭`,v:+($('#ln')||{value:last}).value});
+  const lv=S.lean.filter(p=>p.v!=null);const last=lv.length?lv[lv.length-1].v:50;
+  actions(`<div class="lean"><p class="label">第 ${i+1} 庭結束・你的暫時心證</p><h4 style="font-size:15.5px;margin:4px 0 6px">${C.lean.q}</h4><div class="ends"><span>${esc(C.lean.a)}</span><span>${esc(C.lean.b)}</span></div><input type="range" id="ln" min="0" max="100" value="${last}"><p class="small">這只是暫時的傾向，評議前不要定案。還無法判斷也完全沒問題，那代表你在等更多證據。</p></div>
+    <button class="btn" data-v="rec">記錄心證並休庭</button><button class="btn ghost" data-v="skip">先不表態，休庭</button>`);
+  const v=await waitClick('#actions .btn');
+  S.lean.push({label:`第${i+1}庭`,v:v==='rec'?+($('#ln')||{value:last}).value:null});actions('');
 }
 
 /* ================= deliberation ================= */
@@ -447,17 +466,19 @@ async function verdict(C){
   review(C);
 }
 function leanChart(C){
-  if(!S.lean.length)return '';
-  const W=300,H=130,pl=26,pr=26,pt=22,pb=24,n=S.lean.length;
+  const L=S.lean.filter(p=>p.v!=null);const skip=S.lean.length-L.length;
+  if(!L.length)return '<div class="lockedmsg">你每個庭期都選擇先不表態，一直等到評議才形成判斷。這正是國民法官被期待的做法。</div>';
+  const note=skip?`<p class="small">有 ${skip} 個庭期你選擇先不表態。</p>`:'';
+  const W=300,H=130,pl=26,pr=26,pt=22,pb=24,n=L.length;
   const x=i=>pl+(n===1?(W-pl-pr)/2:i*(W-pl-pr)/(n-1)),y=v=>pt+v/100*(H-pt-pb);
-  const pts=S.lean.map((p,i)=>`${x(i).toFixed(1)},${y(p.v).toFixed(1)}`).join(' ');
+  const pts=L.map((p,i)=>`${x(i).toFixed(1)},${y(p.v).toFixed(1)}`).join(' ');
   return `<div class="chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="心證軌跡">
     <rect x="${pl}" y="${pt}" width="${W-pl-pr}" height="${H-pt-pb}" fill="#F4F6F5"/>
     <line x1="${pl}" x2="${W-pr}" y1="${y(50)}" y2="${y(50)}" stroke="#C5D1CE" stroke-dasharray="4 4"/>
     <text x="4" y="13" font-size="11" fill="#9A3328" font-weight="700">${esc(C.lean.a)}</text>
     <text x="${W-4}" y="${H-6}" font-size="11" fill="#22578C" font-weight="700" text-anchor="end">${esc(C.lean.b)}</text>
     <polyline points="${pts}" fill="none" stroke="#0E7C74" stroke-width="3" stroke-linejoin="round"/>
-    ${S.lean.map((p,i)=>`<circle cx="${x(i)}" cy="${y(p.v)}" r="5" fill="#0E7C74"/><text x="${x(i)}" y="${y(p.v)-9}" font-size="10.5" fill="#13233F" text-anchor="middle">${p.label}</text>`).join('')}
+    ${L.map((p,i)=>`<circle cx="${x(i)}" cy="${y(p.v)}" r="5" fill="#0E7C74"/><text x="${x(i)}" y="${y(p.v)-9}" font-size="10.5" fill="#13233F" text-anchor="middle">${p.label}</text>`).join('')}
   </svg></div>`;
 }
 function selfCheck(){
